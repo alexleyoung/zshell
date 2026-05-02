@@ -10,10 +10,19 @@ pub fn main(init: std.process.Init) !void {
         try stdout.interface.print("$ ", .{});
         const command = try stdin.interface.takeDelimiter('\n');
 
-        if (std.mem.eql(u8, "exit", command.?)) {
-            break;
-        }
+        var parts = std.mem.splitScalar(u8, command.?, ' ');
 
-        try stdout.interface.print("{s}: command not found\n", .{command.?});
+        if (std.mem.eql(u8, "exit", parts.peek().?)) {
+            break;
+        } else if (std.mem.eql(u8, "echo", parts.peek().?)) {
+            _ = parts.next();
+            while (parts.next()) |part| {
+                try stdout.interface.print("{s}", .{part});
+                try stdout.interface.print(" ", .{});
+            }
+            try stdout.interface.print("\n", .{});
+        } else {
+            try stdout.interface.print("{s}: command not found\n", .{command.?});
+        }
     }
 }
