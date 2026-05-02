@@ -9,6 +9,11 @@ pub fn main(init: std.process.Init) !void {
     while (true) {
         try stdout.interface.print("$ ", .{});
         const command = try stdin.interface.takeDelimiter('\n');
+
+        if (std.mem.eql(u8, "exit", command.?)) {
+            break;
+        }
+
         try stdout.interface.print("{s}: command not found\n", .{command.?});
     }
 }
