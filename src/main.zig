@@ -25,7 +25,7 @@ pub fn main(init: std.process.Init) !void {
             {
                 try stdout.interface.print("{s} is a shell builtin\n", .{parts.peek().?});
             } else {
-                try stdout.interface.print("{s}: command not found\n", .{command.?});
+                try stdout.interface.print("{s}: command not found\n", .{parts.peek().?});
             }
         } else {
             try stdout.interface.print("{s}: command not found\n", .{command.?});
