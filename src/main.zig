@@ -70,11 +70,14 @@ fn parseArgs(alloc: std.mem.Allocator, line: []const u8) !std.ArrayList([]const 
     // parse line
     var buf = try std.ArrayList(u8).initCapacity(alloc, 16);
     var in_quote = false;
+    var in_dquote = false;
     for (line) |c| {
-        if (c == ' ' and !in_quote) {
+        if (c == ' ' and !in_quote and !in_dquote) {
             if (buf.items.len != 0)
                 try out.append(alloc, try buf.toOwnedSlice(alloc));
-        } else if (c == '\'') {
+        } else if (c == '\"') {
+            in_dquote = !in_dquote;
+        } else if (c == '\'' and !in_dquote) {
             in_quote = !in_quote;
         } else {
             try buf.append(alloc, c);
@@ -82,7 +85,8 @@ fn parseArgs(alloc: std.mem.Allocator, line: []const u8) !std.ArrayList([]const 
     }
 
     // trailing arg
-    try out.append(alloc, try buf.toOwnedSlice(alloc));
+    if (!in_quote and !in_dquote)
+        try out.append(alloc, try buf.toOwnedSlice(alloc));
 
     return out;
 }
