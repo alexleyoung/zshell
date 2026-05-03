@@ -16,19 +16,25 @@ pub fn main(init: std.process.Init) !void {
     var stdout = std.Io.File.stdout().writer(init.io, &.{});
     var stdin_buffer: [4096]u8 = undefined;
     var stdin = std.Io.File.stdin().readerStreaming(init.io, &stdin_buffer);
+    var arena = std.heap.ArenaAllocator.init(init.gpa);
+    defer arena.deinit();
+
     const env = init.environ_map;
     const PATH_string = env.get("PATH").?;
 
     while (true) {
+        _ = arena.reset(.retain_capacity);
+        const alloc = arena.allocator();
+
         try stdout.interface.print("$ ", .{});
 
         const input = try stdin.interface.takeDelimiter('\n') orelse "";
         var inp_iter = std.mem.splitScalar(u8, input, ' ');
 
         // parse input into array(list) of strings
-        var input_arr = try std.ArrayList([]const u8).initCapacity(init.gpa, 16);
+        var input_arr = try std.ArrayList([]const u8).initCapacity(alloc, 16);
         while (inp_iter.next()) |inp| {
-            try input_arr.append(init.gpa, inp);
+            try input_arr.append(alloc, inp);
         }
 
         const command = Command.fromString(input_arr.items[0]) orelse Command.external;
@@ -41,7 +47,7 @@ pub fn main(init: std.process.Init) !void {
                     try stdout.interface.print("{s} is a shell builtin\n", .{executable_name});
                 } else {
                     // find executable
-                    const executable_path = try findExecutablePath(init.gpa, init.io, PATH_string, executable_name);
+                    const executable_path = try findExecutablePath(alloc, init.io, PATH_string, executable_name);
                     if (executable_path != null) {
                         try stdout.interface.print("{s} is {s}\n", .{ executable_name, executable_path.? });
                     } else {
@@ -50,9 +56,9 @@ pub fn main(init: std.process.Init) !void {
                 }
             },
             .external => {
-                const executable_path = try findExecutablePath(init.gpa, init.io, PATH_string, input_arr.items[0]);
+                const executable_path = try findExecutablePath(alloc, init.io, PATH_string, input_arr.items[0]);
                 if (executable_path != null) {
-                    const res = try std.process.run(init.gpa, init.io, .{
+                    const res = try std.process.run(alloc, init.io, .{
                         .argv = input_arr.items,
                         .environ_map = env,
                     });
