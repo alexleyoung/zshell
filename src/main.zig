@@ -5,11 +5,6 @@ const Command = enum {
     exit,
     type,
     external,
-
-    pub fn fromString(str: []const u8) ?Command {
-        const command = std.meta.stringToEnum(Command, str);
-        return command;
-    }
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -18,45 +13,52 @@ pub fn main(init: std.process.Init) !void {
     var stdin = std.Io.File.stdin().readerStreaming(init.io, &stdin_buffer);
 
     const env = init.environ_map;
-    const PATH_string = env.get("PATH").?;
+    const PATH_string = env.get("PATH") orelse return error.MissingPath;
 
+    var iter_arena = std.heap.ArenaAllocator.init(init.gpa);
+    defer iter_arena.deinit();
     while (true) {
-        const alloc = init.arena.allocator();
+        defer _ = iter_arena.reset(.retain_capacity);
+        const alloc = iter_arena.allocator();
 
         try stdout.interface.print("$ ", .{});
 
         const input_str = try stdin.interface.takeDelimiter('\n') orelse "";
-        const input = try parseArgs(alloc, input_str);
-        if (input.items.len == 0) continue;
+        const args = try parseArgs(alloc, input_str);
+        if (args.len == 0) continue;
 
-        const command = Command.fromString(input.items[0]) orelse Command.external;
+        const command = std.meta.stringToEnum(Command, args[0]) orelse Command.external;
         switch (command) {
-            .echo => try stdout.interface.print("{s}\n", .{try std.mem.join(alloc, " ", input.items[1..])}),
+            .echo => try stdout.interface.print("{s}\n", .{try std.mem.join(alloc, " ", args[1..])}),
             .exit => break,
             .type => {
-                const executable_name = input.items[1];
-                if (Command.fromString(executable_name) != null) {
+                if (args.len < 2) {
+                    try stdout.interface.print("type: missing argument\n", .{});
+                    continue;
+                }
+                const executable_name = args[1];
+                if (std.meta.stringToEnum(Command, executable_name)) |_| {
                     try stdout.interface.print("{s} is a shell builtin\n", .{executable_name});
                 } else {
                     // find executable
                     const executable_path = try findExecutablePath(alloc, init.io, PATH_string, executable_name);
-                    if (executable_path != null) {
-                        try stdout.interface.print("{s} is {s}\n", .{ executable_name, executable_path.? });
+                    if (executable_path) |path| {
+                        try stdout.interface.print("{s} is {s}\n", .{ executable_name, path });
                     } else {
                         try stdout.interface.print("{s}: not found\n", .{executable_name});
                     }
                 }
             },
             .external => {
-                const executable_path = try findExecutablePath(alloc, init.io, PATH_string, input.items[0]);
+                const executable_path = try findExecutablePath(alloc, init.io, PATH_string, args[0]);
                 if (executable_path != null) {
                     const res = try std.process.run(alloc, init.io, .{
-                        .argv = input.items,
+                        .argv = args,
                         .environ_map = env,
                     });
                     try stdout.interface.print("{s}", .{res.stdout});
                 } else {
-                    try stdout.interface.print("{s}: command not found\n", .{input.items[0]});
+                    try stdout.interface.print("{s}: command not found\n", .{args[0]});
                 }
             },
         }
@@ -64,37 +66,49 @@ pub fn main(init: std.process.Init) !void {
 }
 
 /// Helper which parses a line into a list of args
-fn parseArgs(alloc: std.mem.Allocator, line: []const u8) !std.ArrayList([]const u8) {
+fn parseArgs(alloc: std.mem.Allocator, line: []const u8) ![][]const u8 {
     var out = try std.ArrayList([]const u8).initCapacity(alloc, 16);
+
+    // parser states
+    const State = enum { normal, single, double };
+    var state = State.normal;
 
     // parse line
     var buf = try std.ArrayList(u8).initCapacity(alloc, 16);
-    var in_quote = false;
-    var in_dquote = false;
     var escape = false;
     for (line) |c| {
-        if (c == ' ' and !in_quote and !in_dquote and !escape) {
-            if (buf.items.len != 0)
-                try out.append(alloc, try buf.toOwnedSlice(alloc));
-        } else if (escape) {
+        if (escape) {
             try buf.append(alloc, c);
             escape = false;
-        } else if (c == '\\' and !in_quote) {
-            escape = true;
-        } else if (c == '\"' and !in_quote) {
-            in_dquote = !in_dquote;
-        } else if (c == '\'' and !in_dquote) {
-            in_quote = !in_quote;
-        } else {
-            try buf.append(alloc, c);
+            continue;
+        }
+        switch (state) {
+            .normal => switch (c) {
+                ' ' => if (buf.items.len != 0)
+                    try out.append(alloc, try buf.toOwnedSlice(alloc)),
+                '\\' => escape = true,
+                '\'' => state = .single,
+                '\"' => state = .double,
+                else => try buf.append(alloc, c),
+            },
+            .single => switch (c) {
+                '\'' => state = .normal,
+                else => try buf.append(alloc, c),
+            },
+            .double => switch (c) {
+                '"' => state = .normal,
+                '\\' => escape = true,
+                else => try buf.append(alloc, c),
+            },
         }
     }
 
     // trailing arg
-    if (!in_quote and !in_dquote)
+    // TODO: update this so we prompt for continuation
+    if (buf.items.len != 0)
         try out.append(alloc, try buf.toOwnedSlice(alloc));
 
-    return out;
+    return out.items;
 }
 
 /// Helper which, given a user's PATH, searches for an executable and if found returns the path to the executable
