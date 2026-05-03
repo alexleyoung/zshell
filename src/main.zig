@@ -15,12 +15,18 @@ pub fn main(init: std.process.Init) !void {
         if (std.mem.eql(u8, "exit", parts.peek().?)) {
             break;
         } else if (std.mem.eql(u8, "echo", parts.peek().?)) {
+            try stdout.interface.print("{s}\n", .{command.?[5..]});
+        } else if (std.mem.eql(u8, "type", parts.peek().?)) {
             _ = parts.next();
-            while (parts.next()) |part| {
-                try stdout.interface.print("{s}", .{part});
-                try stdout.interface.print(" ", .{});
+            // check if built-in
+            if (std.mem.eql(u8, "exit", parts.peek().?) or
+                std.mem.eql(u8, "echo", parts.peek().?) or
+                std.mem.eql(u8, "type", parts.peek().?))
+            {
+                try stdout.interface.print("{s} is a shell builtin\n", .{parts.peek().?});
+            } else {
+                try stdout.interface.print("{s}: command not found\n", .{command.?});
             }
-            try stdout.interface.print("\n", .{});
         } else {
             try stdout.interface.print("{s}: command not found\n", .{command.?});
         }
