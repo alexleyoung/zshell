@@ -36,10 +36,11 @@ pub fn main(init: std.process.Init) !void {
         while (inp_iter.next()) |inp| {
             try input_arr.append(alloc, inp);
         }
+        if (input_arr.items.len == 0) continue;
 
         const command = Command.fromString(input_arr.items[0]) orelse Command.external;
         switch (command) {
-            .echo => try stdout.interface.print("{s}\n", .{input[5..]}),
+            .echo => try stdout.interface.print("{s}\n", .{try std.mem.join(alloc, " ", input_arr.items[1..])}),
             .exit => break,
             .type => {
                 const executable_name = input_arr.items[1];
@@ -77,9 +78,9 @@ pub fn findExecutablePath(alloc: std.mem.Allocator, io: std.Io, PATH_string: []c
     var paths = std.mem.splitScalar(u8, PATH_string, path_sep);
 
     while (paths.next()) |p| {
-        const dir = try std.Io.Dir.openDirAbsolute(io, p, .{
+        const dir = (std.Io.Dir.openDirAbsolute(io, p, .{
             .access_sub_paths = false,
-        });
+        }) catch continue);
         defer dir.close(io);
         dir.access(io, name, .{ .execute = true }) catch continue;
         return try std.Io.Dir.path.join(alloc, &.{ p, name });
