@@ -79,9 +79,9 @@ fn parseArgs(alloc: std.mem.Allocator, line: []const u8) !std.ArrayList([]const 
         } else if (escape) {
             try buf.append(alloc, c);
             escape = false;
-        } else if (c == '\\') {
+        } else if (c == '\\' and !in_quote) {
             escape = true;
-        } else if (c == '\"') {
+        } else if (c == '\"' and !in_quote) {
             in_dquote = !in_dquote;
         } else if (c == '\'' and !in_dquote) {
             in_quote = !in_quote;
