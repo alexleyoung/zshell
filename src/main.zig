@@ -16,34 +16,25 @@ pub fn main(init: std.process.Init) !void {
     var stdout = std.Io.File.stdout().writer(init.io, &.{});
     var stdin_buffer: [4096]u8 = undefined;
     var stdin = std.Io.File.stdin().readerStreaming(init.io, &stdin_buffer);
-    var arena = std.heap.ArenaAllocator.init(init.gpa);
-    defer arena.deinit();
 
     const env = init.environ_map;
     const PATH_string = env.get("PATH").?;
 
     while (true) {
-        _ = arena.reset(.retain_capacity);
-        const alloc = arena.allocator();
+        const alloc = init.arena.allocator();
 
         try stdout.interface.print("$ ", .{});
 
-        const input = try stdin.interface.takeDelimiter('\n') orelse "";
-        var inp_iter = std.mem.splitScalar(u8, input, ' ');
+        const input_str = try stdin.interface.takeDelimiter('\n') orelse "";
+        const input = try parseArgs(alloc, input_str);
+        if (input.items.len == 0) continue;
 
-        // parse input into array(list) of strings
-        var input_arr = try std.ArrayList([]const u8).initCapacity(alloc, 16);
-        while (inp_iter.next()) |inp| {
-            try input_arr.append(alloc, inp);
-        }
-        if (input_arr.items.len == 0) continue;
-
-        const command = Command.fromString(input_arr.items[0]) orelse Command.external;
+        const command = Command.fromString(input.items[0]) orelse Command.external;
         switch (command) {
-            .echo => try stdout.interface.print("{s}\n", .{try std.mem.join(alloc, " ", input_arr.items[1..])}),
+            .echo => try stdout.interface.print("{s}\n", .{try std.mem.join(alloc, " ", input.items[1..])}),
             .exit => break,
             .type => {
-                const executable_name = input_arr.items[1];
+                const executable_name = input.items[1];
                 if (Command.fromString(executable_name) != null) {
                     try stdout.interface.print("{s} is a shell builtin\n", .{executable_name});
                 } else {
@@ -57,22 +48,46 @@ pub fn main(init: std.process.Init) !void {
                 }
             },
             .external => {
-                const executable_path = try findExecutablePath(alloc, init.io, PATH_string, input_arr.items[0]);
+                const executable_path = try findExecutablePath(alloc, init.io, PATH_string, input.items[0]);
                 if (executable_path != null) {
                     const res = try std.process.run(alloc, init.io, .{
-                        .argv = input_arr.items,
+                        .argv = input.items,
                         .environ_map = env,
                     });
                     try stdout.interface.print("{s}", .{res.stdout});
                 } else {
-                    try stdout.interface.print("{s}: command not found\n", .{input});
+                    try stdout.interface.print("{s}: command not found\n", .{input.items[0]});
                 }
             },
         }
     }
 }
 
-pub fn findExecutablePath(alloc: std.mem.Allocator, io: std.Io, PATH_string: []const u8, name: []const u8) !?[]const u8 {
+/// Helper which parses a line into a list of args
+fn parseArgs(alloc: std.mem.Allocator, line: []const u8) !std.ArrayList([]const u8) {
+    var out = try std.ArrayList([]const u8).initCapacity(alloc, 16);
+
+    // parse line
+    var buf = try std.ArrayList(u8).initCapacity(alloc, 16);
+    var in_quote = false;
+    for (line) |c| {
+        if (c == ' ' and !in_quote) {
+            try out.append(alloc, try buf.toOwnedSlice(alloc));
+        } else if (c == '\'') {
+            in_quote = !in_quote;
+        } else {
+            try buf.append(alloc, c);
+        }
+    }
+
+    // trailing arg
+    try out.append(alloc, try buf.toOwnedSlice(alloc));
+
+    return out;
+}
+
+/// Helper which, given a user's PATH, searches for an executable and if found returns the path to the executable
+fn findExecutablePath(alloc: std.mem.Allocator, io: std.Io, PATH_string: []const u8, name: []const u8) !?[]const u8 {
     const path_sep = std.Io.Dir.path.delimiter;
 
     var paths = std.mem.splitScalar(u8, PATH_string, path_sep);
