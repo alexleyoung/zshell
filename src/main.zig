@@ -71,10 +71,16 @@ fn parseArgs(alloc: std.mem.Allocator, line: []const u8) !std.ArrayList([]const 
     var buf = try std.ArrayList(u8).initCapacity(alloc, 16);
     var in_quote = false;
     var in_dquote = false;
+    var escape = false;
     for (line) |c| {
-        if (c == ' ' and !in_quote and !in_dquote) {
+        if (c == ' ' and !in_quote and !in_dquote and !escape) {
             if (buf.items.len != 0)
                 try out.append(alloc, try buf.toOwnedSlice(alloc));
+        } else if (escape) {
+            try buf.append(alloc, c);
+            escape = false;
+        } else if (c == '\\') {
+            escape = true;
         } else if (c == '\"') {
             in_dquote = !in_dquote;
         } else if (c == '\'' and !in_dquote) {
