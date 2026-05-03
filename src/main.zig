@@ -72,7 +72,8 @@ fn parseArgs(alloc: std.mem.Allocator, line: []const u8) !std.ArrayList([]const 
     var in_quote = false;
     for (line) |c| {
         if (c == ' ' and !in_quote) {
-            try out.append(alloc, try buf.toOwnedSlice(alloc));
+            if (buf.items.len != 0)
+                try out.append(alloc, try buf.toOwnedSlice(alloc));
         } else if (c == '\'') {
             in_quote = !in_quote;
         } else {
