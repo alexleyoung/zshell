@@ -47,7 +47,7 @@ pub fn main(init: std.process.Init) !void {
                         defer dir.close(init.io);
                         dir.access(init.io, args, .{ .execute = true }) catch continue;
                         break p;
-                    } orelse null;
+                    } else null;
 
                     if (found) |p| {
                         try stdout.interface.print("{s} is {s}/{s}\n", .{ args, p, args });
