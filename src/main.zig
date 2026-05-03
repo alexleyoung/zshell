@@ -24,7 +24,7 @@ pub fn main(init: std.process.Init) !void {
         const input = try stdin.interface.takeDelimiter('\n') orelse "";
 
         var iterator = std.mem.splitScalar(u8, input, ' ');
-        const command = Command.fromString(iterator.next().?) orelse .invalid;
+        const command = Command.fromString(iterator.next() orelse "") orelse .invalid;
         const args = iterator.rest();
 
         switch (command) {
@@ -40,19 +40,18 @@ pub fn main(init: std.process.Init) !void {
 
                     var paths = std.mem.splitScalar(u8, path, path_sep);
 
-                    var found = false;
-                    while (paths.next()) |p| {
+                    const found = while (paths.next()) |p| {
                         const dir = try std.Io.Dir.openDirAbsolute(init.io, p, .{
                             .access_sub_paths = false,
                         });
                         defer dir.close(init.io);
                         dir.access(init.io, args, .{ .execute = true }) catch continue;
-                        try stdout.interface.print("{s} is {s}/{s}\n", .{ args, p, args });
-                        found = true;
-                        break;
-                    }
+                        break p;
+                    } orelse null;
 
-                    if (!found) {
+                    if (found) |p| {
+                        try stdout.interface.print("{s} is {s}/{s}\n", .{ args, p, args });
+                    } else {
                         try stdout.interface.print("{s}: not found\n", .{args});
                     }
                 }
